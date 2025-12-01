@@ -1,0 +1,95 @@
+// Grafana Alloy Configuration
+
+// OTLP receiver for traces
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    traces  = [otelcol.processor.batch.default.input]
+    metrics = [otelcol.processor.batch.default.input]
+    logs    = [otelcol.processor.batch.default.input]
+  }
+}
+
+// Faro receiver for Real User Monitoring (RUM)
+faro.receiver "default" {
+  server {
+    listen_address = "0.0.0.0"
+    listen_port    = 12347
+    cors_allowed_origins = ["*"]
+  }
+
+  output {
+    logs    = [loki.process.faro.receiver]
+    traces  = [otelcol.processor.batch.faro.input]
+  }
+}
+
+// Process Faro logs
+loki.process "faro" {
+  forward_to = [loki.write.default.receiver]
+}
+
+// Batch processor for Faro traces
+otelcol.processor.batch "faro" {
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+// Batch processor
+otelcol.processor.batch "default" {
+  output {
+    traces  = [otelcol.exporter.otlp.tempo.input]
+    metrics = [otelcol.exporter.prometheus.default.input]
+    logs    = [otelcol.exporter.loki.default.input]
+  }
+}
+
+// Export traces to Tempo
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// Export logs to Loki
+otelcol.exporter.loki "default" {
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  external_labels = {
+    job = "app-name",
+  }
+
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// Export metrics to Prometheus format
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://tempo:9095/api/v1/push"
+  }
+}
+
+// Logging configuration
+logging {
+  level  = "info"
+  format = "logfmt"
+}
